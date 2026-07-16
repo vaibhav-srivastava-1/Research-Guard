@@ -1,0 +1,12 @@
+numpy
+pandas
+faiss-cpu
+sentence-transformers
+rank-bm25
+torch
+transformers
+openai
+python-dotenv
+streamlit
+pytest
+PyJWT
