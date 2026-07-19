@@ -4,6 +4,7 @@ import os
 import secrets
 import shutil
 import sqlite3
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -18,8 +19,18 @@ def _connect() -> sqlite3.Connection:
     return conn
 
 
+@contextmanager
+def _db_connection():
+    conn = _connect()
+    try:
+        yield conn
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def init_db() -> None:
-    with _connect() as conn:
+    with _db_connection() as conn:
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS users (
@@ -116,7 +127,7 @@ def create_user(username: str, password: str) -> tuple[bool, str]:
     salt = secrets.token_hex(16)
     password_hash = _hash_password(password, salt)
     try:
-        with _connect() as conn:
+        with _db_connection() as conn:
             is_admin = 0 if _admin_exists(conn) else 1
             conn.execute(
                 """
@@ -140,7 +151,7 @@ def create_user(username: str, password: str) -> tuple[bool, str]:
 
 def verify_user(username: str, password: str) -> bool:
     username = username.strip().lower()
-    with _connect() as conn:
+    with _db_connection() as conn:
         user = conn.execute(
             "SELECT password_hash, salt FROM users WHERE username = ?",
             (username,),
@@ -155,7 +166,7 @@ def verify_user(username: str, password: str) -> bool:
 
 def is_admin_user(username: str) -> bool:
     username = username.strip().lower()
-    with _connect() as conn:
+    with _db_connection() as conn:
         user = conn.execute(
             "SELECT is_admin FROM users WHERE username = ?",
             (username,),
@@ -164,7 +175,7 @@ def is_admin_user(username: str) -> bool:
 
 
 def set_user_admin(username: str, is_admin: bool) -> None:
-    with _connect() as conn:
+    with _db_connection() as conn:
         conn.execute(
             "UPDATE users SET is_admin = ? WHERE username = ?",
             (1 if is_admin else 0, username.strip().lower()),
@@ -177,7 +188,7 @@ def reset_user_password(username: str, new_password: str) -> tuple[bool, str]:
 
     salt = secrets.token_hex(16)
     password_hash = _hash_password(new_password, salt)
-    with _connect() as conn:
+    with _db_connection() as conn:
         conn.execute(
             """
             UPDATE users
@@ -190,7 +201,7 @@ def reset_user_password(username: str, new_password: str) -> tuple[bool, str]:
 
 
 def add_history(username: str, question: str, answer: str) -> None:
-    with _connect() as conn:
+    with _db_connection() as conn:
         conn.execute(
             """
             INSERT INTO chat_history (username, question, answer, created_at)
@@ -206,7 +217,7 @@ def add_history(username: str, question: str, answer: str) -> None:
 
 
 def get_history(username: str, limit: int = 100) -> list[dict]:
-    with _connect() as conn:
+    with _db_connection() as conn:
         rows = conn.execute(
             """
             SELECT id, question, answer, created_at
@@ -221,7 +232,7 @@ def get_history(username: str, limit: int = 100) -> list[dict]:
 
 
 def get_all_history(limit: int = 250) -> list[dict]:
-    with _connect() as conn:
+    with _db_connection() as conn:
         rows = conn.execute(
             """
             SELECT id, username, question, answer, created_at
@@ -235,7 +246,7 @@ def get_all_history(limit: int = 250) -> list[dict]:
 
 
 def delete_history_item(username: str, history_id: int) -> None:
-    with _connect() as conn:
+    with _db_connection() as conn:
         conn.execute(
             "DELETE FROM chat_history WHERE username = ? AND id = ?",
             (username, history_id),
@@ -243,7 +254,7 @@ def delete_history_item(username: str, history_id: int) -> None:
 
 
 def clear_user_history(username: str) -> None:
-    with _connect() as conn:
+    with _db_connection() as conn:
         conn.execute(
             "DELETE FROM chat_history WHERE username = ?",
             (username.strip().lower(),),
@@ -252,13 +263,13 @@ def clear_user_history(username: str) -> None:
 
 def delete_user_account(username: str) -> None:
     username = username.strip().lower()
-    with _connect() as conn:
+    with _db_connection() as conn:
         conn.execute("DELETE FROM chat_history WHERE username = ?", (username,))
         conn.execute("DELETE FROM users WHERE username = ?", (username,))
 
 
 def list_user_summaries(user_data_dir: Path) -> list[dict]:
-    with _connect() as conn:
+    with _db_connection() as conn:
         rows = conn.execute(
             """
             SELECT
