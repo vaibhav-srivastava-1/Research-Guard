@@ -45,7 +45,13 @@ load_dotenv(project_root / ".env.example")
 
 def load_streamlit_secrets() -> None:
     try:
-        for key in ("OPENAI_API_KEY", "JWT_SECRET", "GENERATOR_MODEL"):
+        for key in (
+            "OPENAI_API_KEY",
+            "JWT_SECRET",
+            "GENERATOR_MODEL",
+            "ADMIN_USERNAME",
+            "ADMIN_PASSWORD",
+        ):
             if key in st.secrets and not os.getenv(key):
                 os.environ[key] = str(st.secrets[key])
     except Exception:
