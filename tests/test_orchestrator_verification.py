@@ -30,3 +30,25 @@ def test_verifier_recovers_support_from_retrieved_chunk():
     assert unsupported == []
     assert "(source: doc_0)" in verified
     assert "UNSUPPORTED" not in verified
+
+
+def test_verifier_adds_missing_citation_for_supported_sentence():
+    orchestrator = ResearchOrchestrator.__new__(ResearchOrchestrator)
+    orchestrator.critic = FakeCritic()
+    chunks = [
+        {
+            "chunk_id": "doc_0",
+            "text": "The crisis was caused by the bursting of the United States housing bubble.",
+        },
+    ]
+    orchestrator.chunk_map = {chunk["chunk_id"]: chunk for chunk in chunks}
+
+    draft = (
+        "The crisis was caused by the bursting of the United States housing bubble. "
+        "**[WARNING: UNSUPPORTED BY CITATION]**"
+    )
+    verified, unsupported = orchestrator._verify_and_revise(draft, chunks)
+
+    assert unsupported == []
+    assert "(source: doc_0)" in verified
+    assert "UNSUPPORTED" not in verified

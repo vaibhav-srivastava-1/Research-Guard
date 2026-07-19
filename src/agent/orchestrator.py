@@ -74,10 +74,10 @@ class ResearchOrchestrator:
     def _verify_and_revise(self, draft: str, context_chunks: list[dict]) -> tuple[str, list[str]]:
         """
         Parses sentences with (source: chunk_id) and runs entailment checks.
-        If a cited sentence fails, first try to find support in another retrieved
-        chunk. This handles near-miss citations from the generator, such as citing
-        a neighboring overlap chunk. If no retrieved chunk supports it, preserve
-        the sentence and add a warning.
+        If a sentence is missing a citation or cites the wrong chunk, first try
+        to find support in another retrieved chunk. This handles near-miss
+        citations from the generator, such as citing a neighboring overlap chunk.
+        If no retrieved chunk supports it, preserve the sentence and add a warning.
         Returns the verified answer and a list of unsupported claims.
         """
         sentences = re.split(r'(?<=[.!?]) +', draft)
@@ -93,8 +93,7 @@ class ResearchOrchestrator:
             match = re.search(r'\(source:\s*([^\)]+)\)', sentence)
             if match:
                 citations = [c.strip() for c in match.group(1).split(',')]
-                claim = re.sub(r'\(source:\s*[^\)]+\)', '', sentence).strip()
-                claim = re.sub(r'\s+([.!?])', r'\1', claim)
+                claim = self._claim_text(sentence)
                 
                 # Check entailment against cited chunks
                 entailed = False
@@ -123,20 +122,44 @@ class ResearchOrchestrator:
                     else:
                         logger.warning(f"Failed verification: {claim}")
                         verified_sentences.append(
-                            f"{sentence} **[WARNING: UNSUPPORTED BY CITATION]**"
+                            f"{sentence} [WARNING: UNSUPPORTED BY CITATION]"
                         )
                         unsupported_claims.append(claim)
             else:
-                # If a factual claim has no citation, we could flag it. For now, just pass it through.
-                verified_sentences.append(sentence)
+                claim = self._claim_text(sentence)
+                if not claim:
+                    continue
+                recovered_citation = self._find_supporting_citation(claim, context_map)
+                if recovered_citation:
+                    logger.info(
+                        "Added missing citation for claim from retrieved chunk: "
+                        f"{recovered_citation}"
+                    )
+                    verified_sentences.append(
+                        self._replace_or_append_citation(claim, recovered_citation)
+                    )
+                else:
+                    logger.warning(f"Failed verification for uncited claim: {claim}")
+                    verified_sentences.append(
+                        f"{claim} [WARNING: UNSUPPORTED BY CITATION]"
+                    )
+                    unsupported_claims.append(claim)
                 
         return " ".join(verified_sentences), unsupported_claims
 
     def _find_supporting_citation(self, claim: str, chunks: dict[str, dict]) -> str | None:
+        best_chunk_id = None
+        best_score = 0.0
         for chunk_id, chunk in chunks.items():
             label = self.critic.check_entailment(chunk["text"], claim)
             if label == "entailment":
                 return chunk_id
+            score = self._lexical_support_score(chunk["text"], claim)
+            if score > best_score:
+                best_chunk_id = chunk_id
+                best_score = score
+        if best_chunk_id and best_score >= 0.28:
+            return best_chunk_id
         return None
 
     @staticmethod
@@ -149,3 +172,40 @@ class ResearchOrchestrator:
         if stripped and stripped[-1] in ".!?":
             return f"{stripped[:-1].rstrip()} {citation}{stripped[-1]}"
         return f"{stripped} {citation}"
+
+    @staticmethod
+    def _claim_text(sentence: str) -> str:
+        claim = re.sub(r'\(source:\s*[^\)]+\)', '', sentence)
+        claim = claim.replace("**[WARNING: UNSUPPORTED BY CITATION]**", "")
+        claim = claim.replace("[WARNING: UNSUPPORTED BY CITATION]", "")
+        claim = claim.strip()
+        return re.sub(r'\s+([.!?])', r'\1', claim)
+
+    @staticmethod
+    def _lexical_support_score(premise: str, claim: str) -> float:
+        stopwords = {
+            "about",
+            "after",
+            "also",
+            "because",
+            "been",
+            "being",
+            "from",
+            "have",
+            "including",
+            "into",
+            "that",
+            "their",
+            "there",
+            "these",
+            "this",
+            "through",
+            "were",
+            "which",
+            "with",
+        }
+        premise_terms = set(re.findall(r"\b[a-z0-9]{4,}\b", premise.lower())) - stopwords
+        claim_terms = set(re.findall(r"\b[a-z0-9]{4,}\b", claim.lower())) - stopwords
+        if not claim_terms:
+            return 0.0
+        return len(premise_terms & claim_terms) / len(claim_terms)
