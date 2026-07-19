@@ -14,6 +14,10 @@ class ResearchOrchestrator:
     def __init__(self, chunks: list[dict]):
         self.chunks = chunks
         self.chunk_map = {chunk["chunk_id"]: chunk for chunk in chunks}
+        # Preserve document order so we can build multi-chunk premise windows.
+        # This assumes `chunks` is passed in the order produced by the chunker
+        # (i.e. sequential chunks from the same document are adjacent in the list).
+        self.chunk_order = {chunk["chunk_id"]: i for i, chunk in enumerate(chunks)}
         
         logger.info("Initializing components...")
         self.planner = PlannerAgent()
@@ -75,9 +79,10 @@ class ResearchOrchestrator:
         """
         Parses sentences with (source: chunk_id) and runs entailment checks.
         If a sentence is missing a citation or cites the wrong chunk, first try
-        to find support in another retrieved chunk. This handles near-miss
-        citations from the generator, such as citing a neighboring overlap chunk.
-        If no retrieved chunk supports it, preserve the sentence and add a warning.
+        to find support in another retrieved chunk, then in the full indexed
+        document set. This handles near-miss citations from the generator, such
+        as citing a neighboring overlap chunk or omitting a citation. If no chunk
+        supports it, preserve the sentence and add a warning.
         Returns the verified answer and a list of unsupported claims.
         """
         sentences = re.split(r'(?<=[.!?]) +', draft)
@@ -101,21 +106,33 @@ class ResearchOrchestrator:
                     # Allow fuzzy matching if models generate slight variations like doc1_0
                     clean_cid = cid.replace("chunk_id:", "").strip()
                     if clean_cid in self.chunk_map:
+                        # Try the cited chunk alone first (cheapest, most precise).
                         premise = self.chunk_map[clean_cid]["text"]
                         label = self.critic.check_entailment(premise, claim)
                         if label == 'entailment':
                             entailed = True
                             break # One supporting chunk is enough
+
+                        # The claim may combine a fact from this chunk with a
+                        # fact from an adjacent chunk (the chunker can split a
+                        # single paragraph mid-thought). Retry with a window
+                        # that includes the neighboring chunks before giving up.
+                        windowed_premise = self._windowed_premise(clean_cid)
+                        if windowed_premise != premise:
+                            label = self.critic.check_entailment(windowed_premise, claim)
+                            if label == 'entailment':
+                                entailed = True
+                                break
                 
                 if entailed:
                     verified_sentences.append(sentence)
                 else:
-                    recovered_citation = self._find_supporting_citation(claim, context_map)
+                    recovered_citation = self._find_supporting_citation(
+                        claim,
+                        context_map,
+                    )
                     if recovered_citation:
-                        logger.info(
-                            "Recovered support for claim from retrieved chunk: "
-                            f"{recovered_citation}"
-                        )
+                        logger.info(f"Recovered support for claim from chunk: {recovered_citation}")
                         verified_sentences.append(
                             self._replace_or_append_citation(sentence, recovered_citation)
                         )
@@ -129,12 +146,12 @@ class ResearchOrchestrator:
                 claim = self._claim_text(sentence)
                 if not claim:
                     continue
-                recovered_citation = self._find_supporting_citation(claim, context_map)
+                recovered_citation = self._find_supporting_citation(
+                    claim,
+                    context_map,
+                )
                 if recovered_citation:
-                    logger.info(
-                        "Added missing citation for claim from retrieved chunk: "
-                        f"{recovered_citation}"
-                    )
+                    logger.info(f"Added missing citation for claim from chunk: {recovered_citation}")
                     verified_sentences.append(
                         self._replace_or_append_citation(claim, recovered_citation)
                     )
@@ -147,17 +164,84 @@ class ResearchOrchestrator:
                 
         return " ".join(verified_sentences), unsupported_claims
 
+    def _windowed_premise(self, chunk_id: str, window: int = 1) -> str:
+        """
+        Builds a premise from `chunk_id` plus its `window` nearest neighbors on
+        each side (in document order), concatenated in order. This lets the
+        critic verify claims whose facts were split across a chunk boundary by
+        the chunker, instead of only checking a single 400-char chunk in
+        isolation. Falls back to the single chunk's text if ordering info or
+        neighbors aren't available.
+        """
+        chunk = self.chunk_map.get(chunk_id)
+        if chunk is None:
+            return ""
+        position = self.chunk_order.get(chunk_id)
+        if position is None:
+            return chunk["text"]
+
+        # Only stitch together chunks that belong to the same source document,
+        # so we don't accidentally merge unrelated documents at a boundary.
+        doc_id = chunk.get("doc_id")
+        ids_by_position = {v: k for k, v in self.chunk_order.items()}
+
+        pieces = []
+        for offset in range(-window, window + 1):
+            neighbor_id = ids_by_position.get(position + offset)
+            if neighbor_id is None:
+                continue
+            neighbor = self.chunk_map[neighbor_id]
+            if doc_id is not None and neighbor.get("doc_id") != doc_id:
+                continue
+            pieces.append(neighbor["text"])
+
+        return " ".join(pieces) if pieces else chunk["text"]
+
     def _find_supporting_citation(self, claim: str, chunks: dict[str, dict]) -> str | None:
-        best_chunk_id = None
-        best_score = 0.0
+        chunk_sets = [chunks]
+        if chunks.keys() != self.chunk_map.keys():
+            chunk_sets.append(self.chunk_map)
+
+        for chunk_set in chunk_sets:
+            entailed_chunk_id = self._find_entailed_chunk(claim, chunk_set)
+            if entailed_chunk_id:
+                return entailed_chunk_id
+
+        return self._find_lexically_supported_chunk(claim, chunk_sets)
+
+    def _find_entailed_chunk(self, claim: str, chunks: dict[str, dict]) -> str | None:
         for chunk_id, chunk in chunks.items():
             label = self.critic.check_entailment(chunk["text"], claim)
             if label == "entailment":
                 return chunk_id
-            score = self._lexical_support_score(chunk["text"], claim)
-            if score > best_score:
-                best_chunk_id = chunk_id
-                best_score = score
+
+            # Same boundary-fragmentation retry as in the primary citation
+            # check: a claim can legitimately draw on a fact that spills into
+            # the neighboring chunk.
+            windowed_premise = self._windowed_premise(chunk_id)
+            if windowed_premise != chunk["text"]:
+                label = self.critic.check_entailment(windowed_premise, claim)
+                if label == "entailment":
+                    return chunk_id
+        return None
+
+    def _find_lexically_supported_chunk(
+        self,
+        claim: str,
+        chunk_sets: list[dict[str, dict]],
+    ) -> str | None:
+        best_chunk_id = None
+        best_score = 0.0
+        seen = set()
+        for chunks in chunk_sets:
+            for chunk_id, chunk in chunks.items():
+                if chunk_id in seen:
+                    continue
+                seen.add(chunk_id)
+                score = self._lexical_support_score(chunk["text"], claim)
+                if score > best_score:
+                    best_chunk_id = chunk_id
+                    best_score = score
         if best_chunk_id and best_score >= 0.28:
             return best_chunk_id
         return None
