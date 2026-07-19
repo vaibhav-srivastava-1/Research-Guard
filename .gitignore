@@ -5,3 +5,5 @@ __pycache__/
 .pytest_cache/
 *.log
 .streamlit/
+data/users/
+data/researchguard.db

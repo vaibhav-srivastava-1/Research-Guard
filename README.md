@@ -1,18 +1,21 @@
 # ResearchGuard
 
-ResearchGuard is a simple document question-answering app. It reads text files from `data/raw`, retrieves the most relevant chunks, generates an answer, and checks whether each cited sentence is supported by the source text.
+ResearchGuard is a Streamlit document question-answering app. Users can create an account, upload their own documents, ask grounded questions, and revisit saved chat history.
 
 The current sample document is about the 2008 financial crisis.
 
 ## What This Project Does
 
-1. Loads `.txt` files from `data/raw`.
-2. Splits each document into smaller chunks.
-3. Retrieves relevant chunks using BM25 and dense retrieval.
-4. Combines retrieval results with reciprocal rank fusion.
-5. Reranks the best chunks.
-6. Generates an answer with source citations.
-7. Checks cited claims and warns when a claim is not supported.
+1. Lets users sign up, log in, and log out.
+2. Stores each user's uploaded documents separately under `data/users`.
+3. Loads `.txt`, `.md`, `.pdf`, and `.docx` files.
+4. Splits each document into smaller chunks.
+5. Retrieves relevant chunks using BM25 and dense retrieval.
+6. Combines retrieval results with reciprocal rank fusion.
+7. Reranks the best chunks.
+8. Generates an answer with source citations.
+9. Checks cited claims and warns when a claim is not supported.
+10. Saves each user's question and answer history in a local SQLite database.
 
 Example question:
 
@@ -34,6 +37,7 @@ Banks stopped lending to each other, fearing counterparty risk (source: 2008_fin
 |   +-- streamlit_app.py        Streamlit web app
 +-- data/
 |   +-- raw/                    Put source .txt documents here
+|   +-- users/                  Generated per-user uploads, ignored by git
 +-- src/
 |   +-- agent/                  Planner, synthesizer, critic, and orchestrator
 |   +-- ingestion/              Document loading and chunking
@@ -82,6 +86,8 @@ Then edit `.env` and add your key:
 ```text
 OPENAI_API_KEY=your_api_key_here
 JWT_SECRET=change_this_to_any_private_random_value
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=change_this_admin_password
 ```
 
 Do not commit `.env`. It contains private secrets.
@@ -100,12 +106,13 @@ Open:
 http://127.0.0.1:8501
 ```
 
-Demo login:
+Create a new account from the sign-up tab, then log in. User accounts and chat history are stored locally in `data/researchguard.db`.
 
-```text
-Username: admin
-Password: admin
-```
+Admin access:
+
+- If `ADMIN_USERNAME` and `ADMIN_PASSWORD` are set, that account is created or promoted to admin when the app starts.
+- If no admin account exists, the first account created from the sign-up tab becomes an admin.
+- Admin users can open the Admin page to view users, document counts, query counts, recent activity, reset passwords, change roles, clear documents, clear history, and delete user accounts.
 
 ## Running From The Command Line
 
@@ -129,15 +136,39 @@ Expected result:
 
 ## Adding Your Own Documents
 
-1. Put one or more `.txt` files inside `data/raw`.
-2. Restart the Streamlit app.
-3. Ask questions about the new documents.
+1. Log in to the Streamlit app.
+2. Open the Documents page.
+3. Upload one or more `.txt`, `.md`, `.pdf`, or `.docx` files.
+4. Open the Chat page and ask questions about your uploaded documents.
 
 Each file becomes a document. The filename is used in citations, so a file named `climate_report.txt` may produce citations like:
 
 ```text
 (source: climate_report_0)
 ```
+
+## Deploying On Streamlit Community Cloud
+
+1. Push this project to GitHub.
+2. In Streamlit Community Cloud, create a new app from your repository.
+3. Set the main file path to:
+
+```text
+app/streamlit_app.py
+```
+
+4. Add secrets in the Streamlit Cloud app settings:
+
+```toml
+OPENAI_API_KEY = "your_api_key_here"
+JWT_SECRET = "replace_with_a_long_random_secret"
+ADMIN_USERNAME = "admin"
+ADMIN_PASSWORD = "replace_with_a_strong_admin_password"
+```
+
+5. Deploy the app.
+
+Streamlit Community Cloud storage is not guaranteed to be permanent across rebuilds or restarts. For production use, replace the local SQLite database and `data/users` uploads with managed storage, such as Postgres plus S3-compatible object storage.
 
 ## How The Pipeline Works
 
@@ -190,10 +221,12 @@ These are generated or private and should not be committed:
 
 - `.venv/`
 - `.env`
+- `data/users/`
+- `data/researchguard.db`
 - `__pycache__/`
 - `.pytest_cache/`
 - `*.log`
 
 ## Current Status
 
-The project has been tested with the sample 2008 financial crisis document. The Streamlit app runs at `http://127.0.0.1:8501`, accepts the demo login, retrieves document chunks, and produces cited answers.
+The project has been tested with the sample 2008 financial crisis document. The Streamlit app runs at `http://127.0.0.1:8501`, supports account creation and login/logout, accepts user uploads, retrieves document chunks, saves history, and produces cited answers.
