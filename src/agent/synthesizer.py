@@ -35,7 +35,9 @@ class SynthesizerAgent:
             "2. Citation format must be exactly: (source: CHUNK_ID)\n"
             "3. Example: The sky is blue (source: doc1_0).\n"
             "4. If multiple chunks support a claim, cite them like: (source: doc1_0, doc2_3).\n"
-            "5. If the provided context chunks DO NOT contain the answer, you MUST state that you do not have enough information. Do not invent facts."
+            "5. Use the chunk ID from the same chunk that contains the specific fact in that sentence.\n"
+            "6. Do not write uncited setup, transition, summary, or conclusion sentences.\n"
+            "7. If the provided context chunks DO NOT contain the answer, you MUST state that you do not have enough information. Do not invent facts."
         )
         
         user_prompt = f"User Query: {query}\n\nRetrieved Context:\n{context_text}"

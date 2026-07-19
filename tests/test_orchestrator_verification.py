@@ -1,0 +1,32 @@
+from src.agent.orchestrator import ResearchOrchestrator
+
+
+class FakeCritic:
+    def check_entailment(self, premise: str, hypothesis: str) -> str:
+        del hypothesis
+        if "housing bubble" in premise:
+            return "entailment"
+        return "neutral"
+
+
+def test_verifier_recovers_support_from_retrieved_chunk():
+    orchestrator = ResearchOrchestrator.__new__(ResearchOrchestrator)
+    orchestrator.critic = FakeCritic()
+    chunks = [
+        {
+            "chunk_id": "doc_0",
+            "text": "The crisis was caused by the bursting of the United States housing bubble.",
+        },
+        {
+            "chunk_id": "doc_1",
+            "text": "Dodd-Frank introduced new financial regulations after the crisis.",
+        },
+    ]
+    orchestrator.chunk_map = {chunk["chunk_id"]: chunk for chunk in chunks}
+
+    draft = "The crisis was caused by the bursting of the United States housing bubble (source: doc_1)."
+    verified, unsupported = orchestrator._verify_and_revise(draft, chunks)
+
+    assert unsupported == []
+    assert "(source: doc_0)" in verified
+    assert "UNSUPPORTED" not in verified

@@ -74,12 +74,16 @@ class ResearchOrchestrator:
     def _verify_and_revise(self, draft: str, context_chunks: list[dict]) -> tuple[str, list[str]]:
         """
         Parses sentences with (source: chunk_id) and runs entailment checks.
-        If a sentence fails, we mark it as [UNSUPPORTED] in the text for this baseline implementation.
+        If a cited sentence fails, first try to find support in another retrieved
+        chunk. This handles near-miss citations from the generator, such as citing
+        a neighboring overlap chunk. If no retrieved chunk supports it, preserve
+        the sentence and add a warning.
         Returns the verified answer and a list of unsupported claims.
         """
         sentences = re.split(r'(?<=[.!?]) +', draft)
         verified_sentences = []
         unsupported_claims = []
+        context_map = {chunk["chunk_id"]: chunk for chunk in context_chunks}
         
         for sentence in sentences:
             if not sentence.strip():
@@ -107,11 +111,41 @@ class ResearchOrchestrator:
                 if entailed:
                     verified_sentences.append(sentence)
                 else:
-                    logger.warning(f"Failed verification: {claim}")
-                    verified_sentences.append(f"{claim} [WARNING: UNSUPPORTED BY CITATION]")
-                    unsupported_claims.append(claim)
+                    recovered_citation = self._find_supporting_citation(claim, context_map)
+                    if recovered_citation:
+                        logger.info(
+                            "Recovered support for claim from retrieved chunk: "
+                            f"{recovered_citation}"
+                        )
+                        verified_sentences.append(
+                            self._replace_or_append_citation(sentence, recovered_citation)
+                        )
+                    else:
+                        logger.warning(f"Failed verification: {claim}")
+                        verified_sentences.append(
+                            f"{sentence} **[WARNING: UNSUPPORTED BY CITATION]**"
+                        )
+                        unsupported_claims.append(claim)
             else:
                 # If a factual claim has no citation, we could flag it. For now, just pass it through.
                 verified_sentences.append(sentence)
                 
         return " ".join(verified_sentences), unsupported_claims
+
+    def _find_supporting_citation(self, claim: str, chunks: dict[str, dict]) -> str | None:
+        for chunk_id, chunk in chunks.items():
+            label = self.critic.check_entailment(chunk["text"], claim)
+            if label == "entailment":
+                return chunk_id
+        return None
+
+    @staticmethod
+    def _replace_or_append_citation(sentence: str, chunk_id: str) -> str:
+        citation = f"(source: {chunk_id})"
+        if re.search(r'\(source:\s*[^\)]+\)', sentence):
+            return re.sub(r'\(source:\s*[^\)]+\)', citation, sentence)
+
+        stripped = sentence.rstrip()
+        if stripped and stripped[-1] in ".!?":
+            return f"{stripped[:-1].rstrip()} {citation}{stripped[-1]}"
+        return f"{stripped} {citation}"
