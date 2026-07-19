@@ -37,7 +37,11 @@ class SynthesizerAgent:
             "4. If multiple chunks support a claim, cite them like: (source: doc1_0, doc2_3).\n"
             "5. Use the chunk ID from the same chunk that contains the specific fact in that sentence.\n"
             "6. Do not write uncited setup, transition, summary, or conclusion sentences.\n"
-            "7. If the provided context chunks DO NOT contain the answer, you MUST state that you do not have enough information. Do not invent facts."
+            "7. If the provided context chunks DO NOT contain the answer, you MUST state that you do not have enough information. Do not invent facts.\n"
+            "8. Keep each sentence to ONE atomic, independently-verifiable fact. Do not combine facts from "
+            "different chunks into a single compound sentence (e.g. do not join a cause from one chunk with an "
+            "effect from another chunk in the same sentence). If a full explanation needs multiple facts, write "
+            "them as separate cited sentences instead of one long sentence."
         )
         
         user_prompt = f"User Query: {query}\n\nRetrieved Context:\n{context_text}"
