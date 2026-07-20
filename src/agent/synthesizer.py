@@ -63,19 +63,62 @@ class SynthesizerAgent:
         except Exception as e:
             logger.error(f"Synthesizer failed: {e}")
             if context_chunks:
-                logger.info("Generating local heuristic fallback response from context chunks...")
-                import re
-                fallback_sentences = []
-                for chunk in context_chunks[:3]:
-                    sentences = re.split(r'(?<=[.!?])\s+', chunk["text"])
-                    for sent in sentences[:2]:
-                        if sent.strip():
-                            s_clean = sent.strip()
-                            punctuation = ""
-                            if s_clean[-1] in ".!?":
-                                punctuation = s_clean[-1]
-                                s_clean = s_clean[:-1].strip()
-                            fallback_sentences.append(f"{s_clean} (source: {chunk['chunk_id']}){punctuation}")
-                if fallback_sentences:
-                    return " ".join(fallback_sentences)
-            return "Error generating response."
+                logger.info("Generating query-aware local heuristic fallback response from context chunks...")
+                return self._heuristic_fallback(query, context_chunks)
+            return "I do not have enough information in the provided document set to answer this question."
+
+    def _heuristic_fallback(self, query: str, context_chunks: list[dict]) -> str:
+        import re
+
+        stopwords = {
+            "a", "an", "the", "and", "or", "but", "if", "because", "as", "what",
+            "which", "who", "whom", "this", "that", "these", "those", "am", "is",
+            "are", "was", "were", "be", "been", "being", "have", "has", "had",
+            "do", "does", "did", "how", "why", "where", "when", "can", "could",
+            "should", "would", "about", "for", "with", "from", "into", "of", "to",
+            "in", "on", "at", "by", "it", "its", "they", "them", "their"
+        }
+
+        query_words = [
+            w.lower()
+            for w in re.findall(r"\b[a-zA-Z0-9]{2,}\b", query)
+            if w.lower() not in stopwords
+        ]
+
+        if not context_chunks or not query_words:
+            return "I do not have enough information in the provided document set to answer this question."
+
+        candidate_sentences = []
+        seen_sentences = set()
+
+        for chunk in context_chunks:
+            chunk_id = chunk["chunk_id"]
+            raw_sents = re.split(r"(?<=[.!?])\s+", chunk["text"])
+            for sent in raw_sents:
+                s_clean = sent.strip()
+                if not s_clean or s_clean in seen_sentences:
+                    continue
+                seen_sentences.add(s_clean)
+
+                sent_words = set(
+                    w.lower() for w in re.findall(r"\b[a-zA-Z0-9]{2,}\b", s_clean)
+                )
+                matches = sum(1 for q_term in query_words if q_term in sent_words)
+
+                if matches > 0:
+                    punctuation = ""
+                    if s_clean[-1] in ".!?":
+                        punctuation = s_clean[-1]
+                        s_clean = s_clean[:-1].strip()
+                    formatted = f"{s_clean} (source: {chunk_id}){punctuation}"
+                    candidate_sentences.append((matches, formatted))
+
+        if not candidate_sentences:
+            return "I do not have enough information in the provided document set to answer this question."
+
+        # Sort candidate sentences by relevance match score descending
+        candidate_sentences.sort(key=lambda x: x[0], reverse=True)
+        top_sentences = [item[1] for item in candidate_sentences[:4]]
+
+        return " ".join(top_sentences)
+

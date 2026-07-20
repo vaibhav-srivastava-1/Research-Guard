@@ -64,3 +64,25 @@ def test_critic_agent_long_premise_truncation():
     label = critic.check_entailment(long_premise, hypothesis)
     assert label in ["entailment", "neutral", "contradiction"]
 
+
+def test_synthesizer_query_aware_fallback():
+    from src.agent.synthesizer import SynthesizerAgent
+
+    synthesizer = SynthesizerAgent()
+    chunks = [
+        {
+            "chunk_id": "doc_0",
+            "text": "The crisis was caused by defaults on subprime mortgages. Banks stopped lending to each other.",
+        }
+    ]
+
+    # Query 1: Banks lending
+    ans1 = synthesizer._heuristic_fallback("Why did banks stop lending?", chunks)
+    assert "Banks stopped lending" in ans1
+
+    # Query 2: Unmentioned topic (COVID)
+    ans2 = synthesizer._heuristic_fallback("How does it compare to COVID?", chunks)
+    assert "do not have enough information" in ans2.lower()
+    assert ans1 != ans2
+
+

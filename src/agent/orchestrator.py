@@ -93,7 +93,11 @@ class ResearchOrchestrator:
         for sentence in sentences:
             if not sentence.strip():
                 continue
-                
+
+            if "do not have enough information" in sentence.lower():
+                verified_sentences.append(sentence)
+                continue
+
             # Extract citations like (source: c1, c2)
             match = re.search(r'\(source:\s*([^\)]+)\)', sentence)
             if match:
