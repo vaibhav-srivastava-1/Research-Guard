@@ -43,7 +43,11 @@ class CriticAgent:
         if self.classifier is None:
             return self._fallback_entailment(premise, hypothesis)
 
-        result = self.classifier(f"{premise} </s></s> {hypothesis}")[0]
+        result = self.classifier(
+            f"{premise} </s></s> {hypothesis}",
+            truncation=True,
+            max_length=512,
+        )[0]
         label = result['label'].lower()
         score = result['score']
 
@@ -56,7 +60,13 @@ class CriticAgent:
             from transformers import pipeline
             from transformers.utils import logging as hf_logging
             hf_logging.disable_progress_bar()
-            return pipeline("text-classification", model=model_name, return_all_scores=False)
+            return pipeline(
+                "text-classification",
+                model=model_name,
+                return_all_scores=False,
+                truncation=True,
+                max_length=512,
+            )
         except Exception as exc:
             logger.warning(f"Failed to load Critic NLI model: {exc}")
             return None

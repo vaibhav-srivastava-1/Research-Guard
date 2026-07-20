@@ -176,14 +176,15 @@ class ResearchOrchestrator:
         chunk = self.chunk_map.get(chunk_id)
         if chunk is None:
             return ""
-        position = self.chunk_order.get(chunk_id)
+        chunk_order = getattr(self, "chunk_order", {})
+        position = chunk_order.get(chunk_id)
         if position is None:
             return chunk["text"]
 
         # Only stitch together chunks that belong to the same source document,
         # so we don't accidentally merge unrelated documents at a boundary.
         doc_id = chunk.get("doc_id")
-        ids_by_position = {v: k for k, v in self.chunk_order.items()}
+        ids_by_position = {v: k for k, v in chunk_order.items()}
 
         pieces = []
         for offset in range(-window, window + 1):

@@ -7,3 +7,4 @@ __pycache__/
 .streamlit/
 data/users/
 data/researchguard.db
+.pytest_temp/

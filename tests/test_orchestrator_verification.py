@@ -52,3 +52,15 @@ def test_verifier_adds_missing_citation_for_supported_sentence():
     assert unsupported == []
     assert "(source: doc_0)" in verified
     assert "UNSUPPORTED" not in verified
+
+
+def test_critic_agent_long_premise_truncation():
+    from src.agent.critic import CriticAgent
+
+    critic = CriticAgent()
+    long_premise = "The 2008 financial crisis was triggered by subprime mortgage defaults. " * 80
+    hypothesis = "The crisis was triggered by subprime default risks."
+    # Should complete without throwing IndexOutOfBounds for position embeddings (size 514)
+    label = critic.check_entailment(long_premise, hypothesis)
+    assert label in ["entailment", "neutral", "contradiction"]
+

@@ -85,3 +85,18 @@ def chunk_documents(documents: list[dict], chunk_size: int = CHUNK_SIZE, overlap
     logger.info(f"Generated {len(chunked_data)} chunks from {len(documents)} documents.")
     return chunked_data
 
+
+if __name__ == "__main__":
+    sample_text = (
+        "The 2008 financial crisis was a severe economic disruption. "
+        "It was caused by defaults on subprime mortgages and excessive risk-taking by banks. "
+        "Central banks around the world responded with unprecedented monetary policies. "
+        "Regulatory frameworks like Dodd-Frank were subsequently enacted to reduce systemic risk."
+    )
+    sample_docs = [{"doc_id": "demo_doc", "text": sample_text, "metadata": {"author": "demo"}}]
+    results = chunk_documents(sample_docs, chunk_size=20, overlap=5)
+    print(f"\nChunker Demo: Created {len(results)} chunks:")
+    for chunk in results:
+        print(f"  [{chunk['chunk_id']}]: {chunk['text']}")
+
+
