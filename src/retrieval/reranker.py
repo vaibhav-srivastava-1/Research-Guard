@@ -26,7 +26,7 @@ class Reranker:
             return []
             
         if self.model is not None:
-            pairs = [[query, candidate["text"]] for candidate in candidates]
+            pairs = [[query, candidate["text"][:1500]] for candidate in candidates]
             scores = self.model.predict(pairs)
         else:
             scores = [self._lexical_score(query, candidate["text"]) for candidate in candidates]

@@ -43,17 +43,22 @@ class CriticAgent:
         if self.classifier is None:
             return self._fallback_entailment(premise, hypothesis)
 
-        result = self.classifier(
-            f"{premise} </s></s> {hypothesis}",
-            truncation=True,
-            max_length=512,
-        )[0]
-        label = result['label'].lower()
-        score = result['score']
+        try:
+            safe_premise = premise[:1500] if len(premise) > 1500 else premise
+            safe_hypothesis = hypothesis[:400] if len(hypothesis) > 400 else hypothesis
+            result = self.classifier(
+                f"{safe_premise} </s></s> {safe_hypothesis}",
+                truncation=True,
+                max_length=512,
+            )[0]
+            label = result['label'].lower()
+            score = result['score']
 
-        logger.debug(f"Critic Evaluation: {label} (Score: {score:.3f}) | Claim: {hypothesis}")
-
-        return label
+            logger.debug(f"Critic Evaluation: {label} (Score: {score:.3f}) | Claim: {hypothesis}")
+            return label
+        except Exception as exc:
+            logger.warning(f"Critic NLI evaluation error ({exc}); using fallback entailment.")
+            return self._fallback_entailment(premise, hypothesis)
 
     def _load_classifier(self, model_name: str):
         try:
