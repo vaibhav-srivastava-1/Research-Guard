@@ -28,7 +28,7 @@ FINAL_TOP_K = 5
 EMBEDDING_MODEL = "all-MiniLM-L6-v2"
 RERANKER_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"
 NLI_MODEL = "roberta-large-mnli"
-GENERATOR_MODEL = os.getenv("GENERATOR_MODEL", "llama-3.3-70b-versatile")
+GENERATOR_MODEL = os.getenv("GENERATOR_MODEL", "openai/gpt-oss-120b")
 
 # Agent Config
 MAX_CRITIC_RETRIES = 2
