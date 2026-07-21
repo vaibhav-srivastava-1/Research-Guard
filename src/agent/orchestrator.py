@@ -7,6 +7,7 @@ from src.retrieval.dense_retriever import DenseRetriever
 from src.retrieval.fusion import reciprocal_rank_fusion
 from src.retrieval.reranker import Reranker
 from src.utils import setup_logger
+from src.config import FINAL_TOP_K
 
 logger = setup_logger(__name__)
 
@@ -52,7 +53,7 @@ class ResearchOrchestrator:
                 for chunk in reranked:
                     all_top_chunks[chunk["chunk_id"]] = chunk
                     
-            context_chunks = list(all_top_chunks.values())
+            context_chunks = self._diversify_chunks(list(all_top_chunks.values()), max_chunks=FINAL_TOP_K)
             
             # Step 3: Synthesize
             logger.info(f"Drafting response (Retry {retries})...")
@@ -166,6 +167,8 @@ class ResearchOrchestrator:
                     )
                     unsupported_claims.append(claim)
                 
+        verified_sentences = self._deduplicate_answer_sentences(verified_sentences)
+        unsupported_claims = list(dict.fromkeys(unsupported_claims))
         return " ".join(verified_sentences), unsupported_claims
 
     def _windowed_premise(self, chunk_id: str, window: int = 1) -> str:
@@ -298,3 +301,82 @@ class ResearchOrchestrator:
         if not claim_terms:
             return 0.0
         return len(premise_terms & claim_terms) / len(claim_terms)
+
+    @classmethod
+    def _diversify_chunks(
+        cls,
+        chunks: list[dict],
+        max_chunks: int = FINAL_TOP_K,
+        similarity_threshold: float = 0.88,
+    ) -> list[dict]:
+        selected = []
+        selected_signatures = []
+
+        for chunk in chunks:
+            signature = cls._term_signature(chunk.get("text", ""))
+            if signature and any(
+                cls._jaccard_similarity(signature, selected_signature) >= similarity_threshold
+                for selected_signature in selected_signatures
+            ):
+                continue
+
+            selected.append(chunk)
+            selected_signatures.append(signature)
+            if len(selected) >= max_chunks:
+                return selected
+
+        if selected:
+            return selected
+        return chunks[:max_chunks]
+
+    @classmethod
+    def _deduplicate_answer_sentences(
+        cls,
+        sentences: list[str],
+        similarity_threshold: float = 0.82,
+    ) -> list[str]:
+        deduplicated = []
+        signatures = []
+
+        for sentence in sentences:
+            signature = cls._term_signature(cls._claim_text(sentence))
+            if signature and any(
+                cls._jaccard_similarity(signature, existing) >= similarity_threshold
+                for existing in signatures
+            ):
+                continue
+            deduplicated.append(sentence)
+            signatures.append(signature)
+
+        return deduplicated
+
+    @staticmethod
+    def _term_signature(text: str) -> set[str]:
+        stopwords = {
+            "about",
+            "after",
+            "also",
+            "because",
+            "been",
+            "being",
+            "from",
+            "have",
+            "including",
+            "into",
+            "that",
+            "their",
+            "there",
+            "these",
+            "this",
+            "through",
+            "were",
+            "which",
+            "with",
+        }
+        return set(re.findall(r"\b[a-z0-9]{4,}\b", text.lower())) - stopwords
+
+    @staticmethod
+    def _jaccard_similarity(left: set[str], right: set[str]) -> float:
+        if not left or not right:
+            return 0.0
+        return len(left & right) / len(left | right)

@@ -86,3 +86,67 @@ def test_synthesizer_query_aware_fallback():
     assert ans1 != ans2
 
 
+def test_verifier_falls_back_to_all_chunks_when_context_misses_support():
+    orchestrator = ResearchOrchestrator.__new__(ResearchOrchestrator)
+    orchestrator.critic = FakeCritic()
+    all_chunks = [
+        {
+            "chunk_id": "doc_0",
+            "text": "The crisis was caused by the bursting of the United States housing bubble.",
+        },
+        {
+            "chunk_id": "doc_1",
+            "text": "Dodd-Frank introduced new financial regulations after the crisis.",
+        },
+    ]
+    context_chunks = [all_chunks[1]]
+    orchestrator.chunk_map = {chunk["chunk_id"]: chunk for chunk in all_chunks}
+
+    draft = "The crisis was caused by the bursting of the United States housing bubble."
+    verified, unsupported = orchestrator._verify_and_revise(draft, context_chunks)
+
+    assert unsupported == []
+    assert "(source: doc_0)" in verified
+    assert "UNSUPPORTED" not in verified
+
+
+def test_verifier_removes_duplicate_supported_claims():
+    orchestrator = ResearchOrchestrator.__new__(ResearchOrchestrator)
+    orchestrator.critic = FakeCritic()
+    chunks = [
+        {
+            "chunk_id": "doc_0",
+            "text": "The crisis was caused by the bursting of the United States housing bubble.",
+        },
+    ]
+    orchestrator.chunk_map = {chunk["chunk_id"]: chunk for chunk in chunks}
+
+    draft = (
+        "The crisis was caused by the bursting of the United States housing bubble (source: doc_0). "
+        "The United States housing bubble caused the crisis (source: doc_0)."
+    )
+    verified, unsupported = orchestrator._verify_and_revise(draft, chunks)
+
+    assert unsupported == []
+    assert verified.count("(source: doc_0)") == 1
+
+
+def test_diversify_chunks_skips_near_duplicate_context():
+    chunks = [
+        {
+            "chunk_id": "doc_0",
+            "text": "The crisis was caused by the bursting of the United States housing bubble.",
+        },
+        {
+            "chunk_id": "doc_1",
+            "text": "The crisis was caused by the bursting of the United States housing bubble.",
+        },
+        {
+            "chunk_id": "doc_2",
+            "text": "Dodd-Frank introduced new financial regulations after the crisis.",
+        },
+    ]
+
+    diversified = ResearchOrchestrator._diversify_chunks(chunks, max_chunks=3)
+
+    assert [chunk["chunk_id"] for chunk in diversified] == ["doc_0", "doc_2"]

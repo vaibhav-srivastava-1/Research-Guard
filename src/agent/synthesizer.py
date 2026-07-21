@@ -1,4 +1,5 @@
 import os
+import re
 from pathlib import Path
 from openai import OpenAI
 from src.config import GENERATOR_MODEL
@@ -38,11 +39,13 @@ class SynthesizerAgent:
             "4. If multiple chunks support a claim, cite them like: (source: doc1_0, doc2_3).\n"
             "5. Use the chunk ID from the same chunk that contains the specific fact in that sentence.\n"
             "6. Do not write uncited setup, transition, summary, or conclusion sentences.\n"
-            "7. If the provided context chunks DO NOT contain the answer, you MUST state that you do not have enough information. Do not invent facts.\n"
-            "8. Keep each sentence to ONE atomic, independently-verifiable fact. Do not combine facts from "
+            "7. Keep each sentence to ONE atomic, independently-verifiable fact. Do not combine facts from "
             "different chunks into a single compound sentence (e.g. do not join a cause from one chunk with an "
             "effect from another chunk in the same sentence). If a full explanation needs multiple facts, write "
-            "them as separate cited sentences instead of one long sentence."
+            "them as separate cited sentences instead of one long sentence.\n"
+            "8. Do not repeat the same claim in multiple sentences, even if it appears in multiple chunks.\n"
+            "9. Prefer a compact answer that covers distinct points once.\n"
+            "10. If the provided context chunks DO NOT contain the answer, you MUST state that you do not have enough information. Do not invent facts."
         )
         
         user_prompt = f"User Query: {query}\n\nRetrieved Context:\n{context_text}"
@@ -59,7 +62,7 @@ class SynthesizerAgent:
             
             answer = response.choices[0].message.content
             logger.info("Drafted answer successfully.")
-            return answer
+            return self._deduplicate_sentences(answer)
         except Exception as e:
             logger.error(f"Synthesizer failed: {e}")
             if context_chunks:
@@ -120,5 +123,57 @@ class SynthesizerAgent:
         candidate_sentences.sort(key=lambda x: x[0], reverse=True)
         top_sentences = [item[1] for item in candidate_sentences[:4]]
 
-        return " ".join(top_sentences)
+        return self._deduplicate_sentences(" ".join(top_sentences))
 
+    @classmethod
+    def _deduplicate_sentences(cls, text: str, threshold: float = 0.82) -> str:
+        sentences = re.split(r'(?<=[.!?])\s+', text.strip())
+        kept_sentences = []
+        seen_signatures = []
+
+        for sentence in sentences:
+            sentence = sentence.strip()
+            if not sentence:
+                continue
+
+            signature = cls._sentence_signature(sentence)
+            if signature and any(cls._jaccard(signature, seen) >= threshold for seen in seen_signatures):
+                continue
+
+            kept_sentences.append(sentence)
+            if signature:
+                seen_signatures.append(signature)
+
+        return " ".join(kept_sentences)
+
+    @staticmethod
+    def _sentence_signature(sentence: str) -> set[str]:
+        sentence = re.sub(r'\(source:\s*[^\)]+\)', '', sentence)
+        stopwords = {
+            "about",
+            "after",
+            "also",
+            "because",
+            "been",
+            "being",
+            "from",
+            "have",
+            "including",
+            "into",
+            "that",
+            "their",
+            "there",
+            "these",
+            "this",
+            "through",
+            "were",
+            "which",
+            "with",
+        }
+        return set(re.findall(r"\b[a-z0-9]{4,}\b", sentence.lower())) - stopwords
+
+    @staticmethod
+    def _jaccard(left: set[str], right: set[str]) -> float:
+        if not left or not right:
+            return 0.0
+        return len(left & right) / len(left | right)
