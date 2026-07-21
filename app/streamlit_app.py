@@ -731,43 +731,37 @@ def render_history(username: str) -> None:
                 st.rerun()
 
 
-def render_users_table(summaries: list[dict]) -> None:
-    header = """
-        <tr>
-            <th>User</th>
-            <th>Role</th>
-            <th>Documents</th>
-            <th>Storage</th>
-            <th>Queries</th>
-            <th>Created</th>
-            <th>Last query</th>
-        </tr>
-    """
+def user_table_rows(summaries: list[dict]) -> list[dict]:
     rows = []
     for item in summaries:
         rows.append(
-            f"""
-            <tr>
-                <td>{html.escape(str(item["username"]))}</td>
-                <td>{html.escape(str(item["role"]))}</td>
-                <td>{html.escape(str(item["documents"]))}</td>
-                <td>{html.escape(str(item["storage_kb"]))} KB</td>
-                <td>{html.escape(str(item["queries"]))}</td>
-                <td>{html.escape(str(item["created_at"]))}</td>
-                <td>{html.escape(str(item["last_query_at"] or "-"))}</td>
-            </tr>
-            """
+            {
+                "User": str(item["username"]),
+                "Role": str(item["role"]),
+                "Documents": int(item["documents"]),
+                "Storage": f'{float(item["storage_kb"]):.1f} KB',
+                "Queries": int(item["queries"]),
+                "Created": str(item["created_at"]),
+                "Last query": str(item["last_query_at"] or "-"),
+            }
         )
-    st.markdown(
-        f"""
-        <div class="rg-table-wrap">
-            <table class="rg-admin-table">
-                <thead>{header}</thead>
-                <tbody>{''.join(rows)}</tbody>
-            </table>
-        </div>
-        """,
-        unsafe_allow_html=True,
+    return rows
+
+
+def render_users_table(summaries: list[dict]) -> None:
+    st.dataframe(
+        user_table_rows(summaries),
+        hide_index=True,
+        use_container_width=True,
+        column_config={
+            "User": st.column_config.TextColumn("User"),
+            "Role": st.column_config.TextColumn("Role"),
+            "Documents": st.column_config.NumberColumn("Documents", format="%d"),
+            "Storage": st.column_config.TextColumn("Storage"),
+            "Queries": st.column_config.NumberColumn("Queries", format="%d"),
+            "Created": st.column_config.TextColumn("Created"),
+            "Last query": st.column_config.TextColumn("Last query"),
+        },
     )
 
 
