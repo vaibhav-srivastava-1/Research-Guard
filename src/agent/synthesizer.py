@@ -45,7 +45,8 @@ class SynthesizerAgent:
             "them as separate cited sentences instead of one long sentence.\n"
             "8. Do not repeat the same claim in multiple sentences, even if it appears in multiple chunks.\n"
             "9. Prefer a compact answer that covers distinct points once.\n"
-            "10. If the provided context chunks DO NOT contain the answer, you MUST state that you do not have enough information. Do not invent facts."
+            "10. If the provided context chunks DO NOT contain the answer, respond with exactly this sentence and no citation: "
+            "I do not have enough information in the provided document set to answer this question."
         )
         
         user_prompt = f"User Query: {query}\n\nRetrieved Context:\n{context_text}"
@@ -126,7 +127,7 @@ class SynthesizerAgent:
         return self._deduplicate_sentences(" ".join(top_sentences))
 
     @classmethod
-    def _deduplicate_sentences(cls, text: str, threshold: float = 0.82) -> str:
+    def _deduplicate_sentences(cls, text: str, threshold: float = 0.5) -> str:
         sentences = re.split(r'(?<=[.!?])\s+', text.strip())
         kept_sentences = []
         seen_signatures = []
@@ -170,7 +171,15 @@ class SynthesizerAgent:
             "which",
             "with",
         }
-        return set(re.findall(r"\b[a-z0-9]{4,}\b", sentence.lower())) - stopwords
+        terms = re.findall(r"\b[a-z0-9]{4,}\b", sentence.lower())
+        return {SynthesizerAgent._stem_token(term) for term in terms} - stopwords
+
+    @staticmethod
+    def _stem_token(term: str) -> str:
+        for suffix in ("ingly", "edly", "ments", "ment", "tion", "ions", "ing", "ed", "es", "s"):
+            if len(term) > len(suffix) + 3 and term.endswith(suffix):
+                return term[: -len(suffix)]
+        return term
 
     @staticmethod
     def _jaccard(left: set[str], right: set[str]) -> float:

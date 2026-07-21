@@ -12,3 +12,18 @@ def test_synthesizer_deduplicates_repeated_claims_with_different_citations():
 
     assert deduplicated.count("housing bubble") == 1
     assert "Dodd-Frank" in deduplicated
+
+
+def test_synthesizer_deduplicates_lightly_rephrased_crisis_claims():
+    text = (
+        "The value of MBS and CDOs plummeted, causing massive losses for financial institutions globally "
+        "(source: doc_0). "
+        "The decline in mortgage payments caused the value of MBS and CDOs to plummet, producing massive "
+        "losses for financial institutions globally (source: doc_1). "
+        "The collapse of Lehman Brothers marked the climax of the crisis (source: doc_2)."
+    )
+
+    deduplicated = SynthesizerAgent._deduplicate_sentences(text)
+
+    assert deduplicated.count("MBS and CDOs") == 1
+    assert "Lehman Brothers" in deduplicated

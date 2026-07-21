@@ -131,6 +131,29 @@ def test_verifier_removes_duplicate_supported_claims():
     assert verified.count("(source: doc_0)") == 1
 
 
+def test_verifier_accepts_insufficient_info_refusal_without_warning():
+    orchestrator = ResearchOrchestrator.__new__(ResearchOrchestrator)
+    orchestrator.critic = FakeCritic()
+    chunks = [
+        {
+            "chunk_id": "doc_0",
+            "text": "The 2008 financial crisis involved mortgage-backed securities.",
+        },
+    ]
+    orchestrator.chunk_map = {chunk["chunk_id"]: chunk for chunk in chunks}
+
+    draft = (
+        "The provided context does not contain information about the 2020 COVID-19 economic downturn "
+        "(source: doc_0)."
+    )
+    verified, unsupported = orchestrator._verify_and_revise(draft, chunks)
+
+    assert unsupported == []
+    assert verified == "The provided context does not contain information about the 2020 COVID-19 economic downturn."
+    assert "(source:" not in verified
+    assert "UNSUPPORTED" not in verified
+
+
 def test_diversify_chunks_skips_near_duplicate_context():
     chunks = [
         {

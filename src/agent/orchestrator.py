@@ -11,6 +11,15 @@ from src.config import FINAL_TOP_K
 
 logger = setup_logger(__name__)
 
+INSUFFICIENT_INFO_PATTERNS = [
+    re.compile(r"\bdo(?:es)?\s+not\s+(?:have|contain|provide)\s+(?:enough\s+)?information\b", re.IGNORECASE),
+    re.compile(r"\bnot\s+enough\s+information\b", re.IGNORECASE),
+    re.compile(r"\binsufficient\s+information\b", re.IGNORECASE),
+    re.compile(r"\bprovided\s+context\s+does\s+not\s+contain\s+information\b", re.IGNORECASE),
+    re.compile(r"\bcontext\s+does\s+not\s+contain\s+information\b", re.IGNORECASE),
+]
+
+
 class ResearchOrchestrator:
     def __init__(self, chunks: list[dict]):
         self.chunks = chunks
@@ -95,8 +104,8 @@ class ResearchOrchestrator:
             if not sentence.strip():
                 continue
 
-            if "do not have enough information" in sentence.lower():
-                verified_sentences.append(sentence)
+            if self._is_insufficient_info(sentence):
+                verified_sentences.append(self._strip_citations(sentence))
                 continue
 
             # Extract citations like (source: c1, c2)
@@ -274,6 +283,15 @@ class ResearchOrchestrator:
         return re.sub(r'\s+([.!?])', r'\1', claim)
 
     @staticmethod
+    def _is_insufficient_info(sentence: str) -> bool:
+        return any(pattern.search(sentence) for pattern in INSUFFICIENT_INFO_PATTERNS)
+
+    @staticmethod
+    def _strip_citations(sentence: str) -> str:
+        stripped = re.sub(r'\s*\(source:\s*[^\)]+\)', '', sentence).strip()
+        return re.sub(r'\s+([.!?])', r'\1', stripped)
+
+    @staticmethod
     def _lexical_support_score(premise: str, claim: str) -> float:
         stopwords = {
             "about",
@@ -296,8 +314,8 @@ class ResearchOrchestrator:
             "which",
             "with",
         }
-        premise_terms = set(re.findall(r"\b[a-z0-9]{4,}\b", premise.lower())) - stopwords
-        claim_terms = set(re.findall(r"\b[a-z0-9]{4,}\b", claim.lower())) - stopwords
+        premise_terms = ResearchOrchestrator._term_signature(premise) - stopwords
+        claim_terms = ResearchOrchestrator._term_signature(claim) - stopwords
         if not claim_terms:
             return 0.0
         return len(premise_terms & claim_terms) / len(claim_terms)
@@ -333,7 +351,7 @@ class ResearchOrchestrator:
     def _deduplicate_answer_sentences(
         cls,
         sentences: list[str],
-        similarity_threshold: float = 0.82,
+        similarity_threshold: float = 0.5,
     ) -> list[str]:
         deduplicated = []
         signatures = []
@@ -373,7 +391,15 @@ class ResearchOrchestrator:
             "which",
             "with",
         }
-        return set(re.findall(r"\b[a-z0-9]{4,}\b", text.lower())) - stopwords
+        terms = re.findall(r"\b[a-z0-9]{4,}\b", text.lower())
+        return {ResearchOrchestrator._stem_token(term) for term in terms} - stopwords
+
+    @staticmethod
+    def _stem_token(term: str) -> str:
+        for suffix in ("ingly", "edly", "ments", "ment", "tion", "ions", "ing", "ed", "es", "s"):
+            if len(term) > len(suffix) + 3 and term.endswith(suffix):
+                return term[: -len(suffix)]
+        return term
 
     @staticmethod
     def _jaccard_similarity(left: set[str], right: set[str]) -> float:
